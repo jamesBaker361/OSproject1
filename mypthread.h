@@ -14,24 +14,24 @@
 
 /* include lib header files that you need here: */
 #include <unistd.h>
+#include <ucontext.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-typedef uint mypthread_t;
+#define STACK_SIZE 4096 //the amount of memory assigned to each thread stack
 
 typedef struct threadControlBlock {
-	/* add important states in a thread control block */
-	// thread Id
-	// thread status
-	// thread context
-	// thread stack
-	// thread priority
-	// And more ...
 
+	/* add important states in a thread control block */
+	uint id; //unique thread id
+	uint status; //NEW, READY,RUNNING,WAITING, TERMINATED
+	ucontext_t * context; // current context
+	struct tcb *next;      // Link to Next tcb if doing linked listt
+    void *stack;  //stack pointer 
 	// YOUR CODE HERE
-} tcb;
+} mypthread_t;
 
 /* mutex struct definition */
 typedef struct mypthread_mutex_t {

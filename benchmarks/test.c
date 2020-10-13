@@ -13,6 +13,7 @@
 int main(int argc, char **argv) {
 
 	/* Implement HERE */
-
+	mypthread_t* thread = (mypthread_t*) malloc(sizeof(mypthread_t));
+	mypthread_create(thread,NULL,NULL,NULL);
 	return 0;
 }

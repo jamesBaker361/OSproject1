@@ -8,18 +8,47 @@
 
 // INITAILIZE ALL YOUR VARIABLES HERE
 // YOUR CODE HERE
+#define NEW 0
+#define READY 1
+#define RUNNING 2
+#define WAITING 3
+#define TERMINATED 4
+
+int mypthread_count = 0;
+mypthread_t * sch_thread;
+
 
 
 /* create a new thread */
 int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
                       void *(*function)(void*), void * arg) {
-       // create Thread Control Block
+	       // create Thread Control Block
        // create and initialize the context of this thread
        // allocate space of stack for this thread to run
        // after everything is all set, push this thread int
        // YOUR CODE HERE
+	if (mypthread_count == 0) { //if there are no threads, then this has only been invoked once and we need to make a shceuler thread
+		/* code */
+	}
+		ucontext_t* context = (ucontext_t*) malloc(sizeof(ucontext_t));
+		getcontext(context);
+		thread->context = context;
+		thread->status=NEW;
+		thread->id=mypthread_count++;
+		char * stack =(void *) malloc(STACK_SIZE);
+		thread->stack=stack;
+		//before calling makecontext, we must intitilaize all these 
+		context->uc_link=NULL;
+		context->uc_stack.ss_sp=stack;
+		context->uc_stack.ss_size=STACK_SIZE;
+		context->uc_stack.ss_flags=0;
 
-    return 0;
+		if(arg==NULL){
+			makecontext(context,(void (*)()) function,0);
+		} else { //parallel_cal,external_cal and vector_mutiply all take 1 arg, we're going to assume that we dont have to worry about more
+			makecontext(context,(void (*)()) function,1,arg);
+		}
+    	return 0;
 };
 
 /* give CPU possession to other user-level threads voluntarily */
@@ -131,5 +160,3 @@ static void sched_mlfq() {
 }
 
 // Feel free to add any other functions you need
-
-// YOUR CODE HERE
