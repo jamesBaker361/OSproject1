@@ -20,13 +20,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define STACK_SIZE 4096 //the amount of memory assigned to each thread stack
+#define STACK_SIZE SIGSTKSZ //the amount of memory assigned to each thread stack
 
 typedef struct threadControlBlock {
 
 	/* add important states in a thread control block */
 	uint id; //unique thread id
-	uint status; //NEW, READY,RUNNING,WAITING, TERMINATED
+	uint state; //NEW, READY,RUNNING,WAITING, TERMINATED
 	ucontext_t * context; // current context
 	struct tcb *next;      // Link to Next tcb if doing linked listt
     void *stack;  //stack pointer 

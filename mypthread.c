@@ -15,9 +15,23 @@
 #define TERMINATED 4
 
 int mypthread_count = 0;
-mypthread_t * sch_thread;
+mypthread_t * sch_thread; //this is the scheduler thread; when a thread yields, this thread takes over and swaps
+mypthread_t * current_thread; //a pointer to whatever the current thread is 
 
-
+int init_thread(mypthread_t * thread) {
+	ucontext_t* context = (ucontext_t*) malloc(sizeof(ucontext_t));
+	getcontext(context);
+	thread->context = context;
+	thread->state=NEW;
+	thread->id=mypthread_count++;
+	char * stack =(void *) malloc(STACK_SIZE);
+	thread->stack=stack;
+	//before calling makecontext, we must intitilaize all these 
+	context->uc_link=NULL;
+	context->uc_stack.ss_sp=stack;
+	context->uc_stack.ss_size=STACK_SIZE;
+	context->uc_stack.ss_flags=0;
+}
 
 /* create a new thread */
 int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
@@ -28,35 +42,26 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
        // after everything is all set, push this thread int
        // YOUR CODE HERE
 	if (mypthread_count == 0) { //if there are no threads, then this has only been invoked once and we need to make a shceuler thread
-		/* code */
+		sch_thread=(mypthread_t *) malloc(sizeof(mypthread_t));
+		init_thread(sch_thread);
 	}
-		ucontext_t* context = (ucontext_t*) malloc(sizeof(ucontext_t));
-		getcontext(context);
-		thread->context = context;
-		thread->status=NEW;
-		thread->id=mypthread_count++;
-		char * stack =(void *) malloc(STACK_SIZE);
-		thread->stack=stack;
-		//before calling makecontext, we must intitilaize all these 
-		context->uc_link=NULL;
-		context->uc_stack.ss_sp=stack;
-		context->uc_stack.ss_size=STACK_SIZE;
-		context->uc_stack.ss_flags=0;
-
-		if(arg==NULL){
-			makecontext(context,(void (*)()) function,0);
-		} else { //parallel_cal,external_cal and vector_mutiply all take 1 arg, we're going to assume that we dont have to worry about more
-			makecontext(context,(void (*)()) function,1,arg);
-		}
-    	return 0;
+	init_thread(thread);
+	thread->context->uc_link=sch_thread->context; //When func terminates, control is returned to ucp.uc_link
+	if(arg==NULL){
+		makecontext(thread->context,(void (*)()) function,0);
+	} else { //parallel_cal,external_cal and vector_mutiply all take 1 arg, we're going to assume that we dont have to worry about more
+		makecontext(thread->context,(void (*)()) function,1,arg);
+	}
+    return 0;
 };
 
 /* give CPU possession to other user-level threads voluntarily */
 int mypthread_yield() {
-
 	// change thread state from Running to Ready
 	// save context of this thread to its thread control block
 	// wwitch from thread context to scheduler context
+	current_thread->state=READY;
+	swapcontext(current_thread->context, sch_thread->context); //swapcontext(ucontext_t *oucp, ucontext_t *ucp)-Transfers control to ucp and saves the current execution state into oucp
 
 	// YOUR CODE HERE
 	return 0;
