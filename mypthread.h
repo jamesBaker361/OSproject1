@@ -19,6 +19,9 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
+#include <sys/time.h>
+#include <string.h>
 
 #define STACK_SIZE SIGSTKSZ //the amount of memory assigned to each thread stack
 
@@ -28,8 +31,9 @@ typedef struct threadControlBlock {
 	uint id; //unique thread id
 	uint state; //NEW, READY,RUNNING,WAITING, TERMINATED
 	ucontext_t * context; // current context
-	struct tcb *next;      // Link to Next tcb if doing linked listt
+	struct threadControlBlock *next;      // Link to Next tcb if doing linked listt
     void *stack;  //stack pointer 
+    int elapsed; //how many time quantum have elapsed
 	// YOUR CODE HERE
 } mypthread_t;
 
@@ -73,6 +77,12 @@ int mypthread_mutex_unlock(mypthread_mutex_t *mutex);
 
 /* destroy the mutex */
 int mypthread_mutex_destroy(mypthread_mutex_t *mutex);
+
+static void schedule();
+static void sched_stcf();
+static void sched_mlfq();
+
+int init_timer();
 
 #ifdef USE_MYTHREAD
 #define pthread_t mypthread_t

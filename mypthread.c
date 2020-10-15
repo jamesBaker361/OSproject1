@@ -14,13 +14,24 @@
 #define WAITING 3
 #define TERMINATED 4
 
-int mypthread_count = 0;
-mypthread_t * sch_thread; //this is the scheduler thread; when a thread yields, this thread takes over and swaps
-mypthread_t * current_thread; //a pointer to whatever the current thread is 
+#define QUANTUM 250 //25 milliseconds
+
+static int mypthread_count = 0;
+static mypthread_t * sch_thread; //this is the scheduler thread; when a thread yields, this thread takes over and swaps
+static mypthread_t * current_thread =NULL; //a pointer to whatever the current thread is 
+
+static struct sigaction sa;
+static struct itimerval timer;
+
+static void do_nothing(){
+	while(1);
+}
 
 int init_thread(mypthread_t * thread) {
+	//init_timer();
 	ucontext_t* context = (ucontext_t*) malloc(sizeof(ucontext_t));
 	getcontext(context);
+	thread->next=NULL;
 	thread->context = context;
 	thread->state=NEW;
 	thread->id=mypthread_count++;
@@ -31,6 +42,32 @@ int init_thread(mypthread_t * thread) {
 	context->uc_stack.ss_sp=stack;
 	context->uc_stack.ss_size=STACK_SIZE;
 	context->uc_stack.ss_flags=0;
+	printf(" this thread has id%d\n", mypthread_count);
+	return 0; //returns 0, since there could be errnos in malloc, etc it doesn't return null
+}
+
+int init_timer() {
+	//struct sigaction sa;
+	memset (&sa, 0, sizeof (sa));
+	sa.sa_handler = &schedule;
+	sigaction (SIGPROF, &sa, NULL);
+	//signal(SIGPROF, schedule);
+	// Create timer struct
+	//struct itimerval timer;
+
+	// Set up what the timer should reset to after the timer goes off
+	timer.it_interval.tv_usec = QUANTUM; 
+	timer.it_interval.tv_sec = 0;
+
+	// Set up the current timer to go off in 1 second
+	// Note: if both of the following values are zero
+	//       the timer will not be active, and the timer
+	//       will never go off even if you set the interval value
+	timer.it_value.tv_usec = QUANTUM;
+	timer.it_value.tv_sec = 0;
+
+	// Set the timer up (start the timer)
+	setitimer(ITIMER_PROF, &timer, NULL);
 }
 
 /* create a new thread */
@@ -42,16 +79,24 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
        // after everything is all set, push this thread int
        // YOUR CODE HERE
 	if (mypthread_count == 0) { //if there are no threads, then this has only been invoked once and we need to make a shceuler thread
+		init_timer();
 		sch_thread=(mypthread_t *) malloc(sizeof(mypthread_t));
 		init_thread(sch_thread);
+		makecontext(sch_thread->context,&do_nothing,0);
 	}
 	init_thread(thread);
-	thread->context->uc_link=sch_thread->context; //When func terminates, control is returned to ucp.uc_link
 	if(arg==NULL){
 		makecontext(thread->context,(void (*)()) function,0);
 	} else { //parallel_cal,external_cal and vector_mutiply all take 1 arg, we're going to assume that we dont have to worry about more
+		//printf("x is %d\n", arg);
 		makecontext(thread->context,(void (*)()) function,1,arg);
 	}
+	//thread->context->uc_link=sch_thread->context;
+
+	//puts this new thread at the head of the thread linked list
+	thread->next=sch_thread->next;
+	sch_thread->next=thread;
+	//schedule();
     return 0;
 };
 
@@ -70,9 +115,11 @@ int mypthread_yield() {
 /* terminate a thread */
 void mypthread_exit(void *value_ptr) {
 	// Deallocated any dynamic memory created when starting this thread
-
-	// YOUR CODE HERE
-};
+	current_thread->state=TERMINATED;
+	free(&(current_thread->context->uc_stack));
+	free(current_thread->context);
+	//
+}
 
 
 /* Wait for thread termination */
@@ -123,41 +170,85 @@ int mypthread_mutex_destroy(mypthread_mutex_t *mutex) {
 	return 0;
 };
 
-/* scheduler */
-static void schedule() {
-	// Every time when timer interrup happens, your thread library
-	// should be contexted switched from thread context to this
-	// schedule function
+int ring_ring() {
+	struct sigaction sa;
+	memset (&sa, 0, sizeof (sa));
+	sa.sa_handler = &schedule;
+	sigaction (SIGPROF, &sa, NULL);
 
-	// Invoke different actual scheduling algorithms
-	// according to policy (STCF or MLFQ)
+	// Create timer struct
+	struct itimerval timer;
 
-	// if (sched == STCF)
-	//		sched_stcf();
-	// else if (sched == MLFQ)
-	// 		sched_mlfq();
+	// Set up what the timer should reset to after the timer goes off
+	timer.it_interval.tv_usec = 0; 
+	timer.it_interval.tv_sec = 0;
 
-	// YOUR CODE HERE
+	// Set up the current timer to go off in 1 second
+	// Note: if both of the following values are zero
+	//       the timer will not be active, and the timer
+	//       will never go off even if you set the interval value
+	timer.it_value.tv_usec = QUANTUM;
+	timer.it_value.tv_sec = 0;
 
-// schedule policy
-#ifndef MLFQ
-	// Choose STCF
-#else
-	// Choose MLFQ
-#endif
+	// Set the timer up (start the timer)
+	setitimer(ITIMER_PROF, &timer, NULL);
+	return 0;
 
 }
 
+/* scheduler */
+static void schedule(int signum) {
+	if (current_thread==NULL) {
+		if(sch_thread->next!=NULL) {
+			current_thread=sch_thread->next;
+		}else{
+			exit(0);
+		}
+	}
+	printf("thread id is %p elapsed %d quanta \n", current_thread,current_thread->elapsed);
+	current_thread->elapsed++;
+
+	mypthread_t * old_thread=current_thread;
+	sched_stcf();
+	old_thread->state=READY;
+	current_thread->state=RUNNING;
+	//setcontext(current_thread->context);
+	//swapcontext(old_thread->context,current_thread->context);
+}
 /* Preemptive SJF (STCF) scheduling algorithm */
 static void sched_stcf() {
+	/*
+	For the first scheduling algorithm, you are required to implement a pre-emptive SJF, which is also known
+as STCF. Unfortunately, you may have noticed that our scheduler DOES NOT know how long a thread will
+run for completion of job. Hence, in our scheduler, we could book-keep the time quantum each thread
+has to run; this is on the assumption that the more time quantum a thread has run, the longer
+this job will run to finish. Therefore, you might need a generic "QUANTUM" value defined possibly in
+mypthread.h, which denotes the minimum window of time after which a thread can be context switched
+out of the CPU. Let’s assume each quantum is 5 milliseconds; depending on your scheduler logic, one could
+context switch out a thread after one quantum or more than one quantum. To implement a mechanism
+like this, you might also need to keep track of how many time quantums each thread has ran for*/
 	// Your own implementation of STCF
 	// (feel free to modify arguments and return types)
 
-	// YOUR CODE HERE
+	//sch_thread->next is the head of the linked list;
+	mypthread_t * ptr=sch_thread->next;
+	if(ptr==NULL) {
+		return;
+	}
+	mypthread_t * lowest=ptr;
+	while(ptr!=NULL) {
+		if(ptr->elapsed<lowest->elapsed) {
+			lowest=ptr;
+		}
+		ptr=ptr->next;
+	}
+	current_thread=lowest;
+
 }
 
 /* Preemptive MLFQ scheduling algorithm */
 static void sched_mlfq() {
+	//aparently only Grad OS needs to do this nice
 	// Your own implementation of MLFQ
 	// (feel free to modify arguments and return types)
 
