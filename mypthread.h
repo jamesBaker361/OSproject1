@@ -32,6 +32,7 @@ typedef struct threadControlBlock {
 	uint state; //NEW, READY,RUNNING,WAITING, TERMINATED
 	ucontext_t * context; // current context
 	struct threadControlBlock *next;      // Link to Next tcb if doing linked listt
+	struct threadControlBlock *prev;      // Link to previous tcb if doing linked listt
     void *stack;  //stack pointer 
     int elapsed; //how many time quantum have elapsed
 	// YOUR CODE HERE

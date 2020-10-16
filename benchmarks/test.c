@@ -17,6 +17,7 @@
 int i_hate_it_here(int x) {
 	int i=0;
 	while(i++<x);
+	printf("%d\n", x);
 	return 0;
 }
 
