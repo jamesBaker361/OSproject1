@@ -33,7 +33,7 @@ typedef struct threadControlBlock {
 	ucontext_t * context; // current context
 	struct threadControlBlock *next;      // Link to Next tcb if doing linked listt
 	struct threadControlBlock *prev;      // Link to previous tcb if doing linked listt
-    void *stack;  //stack pointer 
+    //no stack pointer, that is stored in context->uc_stack.ss_sp
     int elapsed; //how many time quantum have elapsed
 	// YOUR CODE HERE
 } mypthread_t;
@@ -79,11 +79,16 @@ int mypthread_mutex_unlock(mypthread_mutex_t *mutex);
 /* destroy the mutex */
 int mypthread_mutex_destroy(mypthread_mutex_t *mutex);
 
+void free_thread_resources(mypthread_t * thread);
+
+void shutdown();
+
 static void schedule();
 static void sched_stcf();
 static void sched_mlfq();
 
 int init_timer();
+static void finish();
 
 #ifdef USE_MYTHREAD
 #define pthread_t mypthread_t

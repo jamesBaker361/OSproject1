@@ -8,15 +8,16 @@
 
 // INITAILIZE ALL YOUR VARIABLES HERE
 // YOUR CODE HERE
-#define NEW 0
+#define NEW 0 //might do the same thing as ready
 #define READY 1
 #define RUNNING 2
-#define WAITING 3
+#define WAITING 3 //might do the same thing as ready
 #define TERMINATED 4
 
-#define QUANTUM 2500 //25 milliseconds
+#define QUANTUM 1 //25 milliseconds
 
-static int mypthread_count = 0;
+static int init = 0; //if 0, then the timer and stuff has not been initialized
+static int mypthread_count=0;
 static mypthread_t * sch_thread; //this is the scheduler thread; when a thread yields, this thread takes over and swaps
 static mypthread_t * current_thread; //a pointer to whatever the current thread is 
 static mypthread_t * front;
@@ -26,8 +27,10 @@ static int list_length=0;
 static struct sigaction sa;
 static struct itimerval timer;
 
+static ucontext_t * before;
+
 static void do_nothing(){
-	if(current_thread !=NULL){
+	if(current_thread !=NULL && current_thread->state==RUNNING){ //if the thread is READY then it either just started or yielded
 		printf("terminated: thread id  %d\n", current_thread->id);
 		current_thread->state=TERMINATED;
 	}
@@ -44,13 +47,12 @@ int init_thread(mypthread_t * thread) {
 	thread->state=READY;
 	thread->id=mypthread_count;
 	char * stack =(void *) malloc(STACK_SIZE);
-	thread->stack=stack;
 	//before calling makecontext, we must intitilaize all these 
-	context->uc_link=sch_thread->context;
+	context->uc_link=sch_thread->context; //what this does is when this thread terminates, it will go back to the main scheduling thread
 	context->uc_stack.ss_sp=stack;
 	context->uc_stack.ss_size=STACK_SIZE;
 	context->uc_stack.ss_flags=0;
-	printf(" this thread has id%d\n", mypthread_count);
+	//printf(" this thread has id%d\n", mypthread_count);
 	mypthread_count++;
 	return 0; //returns 0, since there could be errnos in malloc, etc it doesn't return null
 }
@@ -79,6 +81,30 @@ int init_timer() {
 	setitimer(ITIMER_PROF, &timer, NULL);
 }
 
+void shutdown() { //when we've run out of threads, this turns off the timer and cleans up everything
+	printf("%s\n", "shutdown");
+	
+	init=0;
+	mypthread_t * ptr= front;
+	while(ptr!=NULL) { //free all of the nodes except front in the ll; it is asumed that they are all terminated
+		if(ptr->next!=NULL) {
+			mypthread_t * zombie =ptr->next;
+			ptr->next=zombie->next;
+			free_thread_resources(zombie);
+		}
+	}
+	init=0;
+	timer.it_interval.tv_usec=0;
+	timer.it_value.tv_usec =0;
+	setitimer(ITIMER_PROF, &timer, NULL); //turns off the timer
+	//setcontext(before);
+	exit(0);
+
+}
+
+static void finish() {
+}
+
 /* create a new thread */
 int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
                       void *(*function)(void*), void * arg) {
@@ -87,7 +113,17 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
        // allocate space of stack for this thread to run
        // after everything is all set, push this thread int
        // YOUR CODE HERE
-	if (mypthread_count == 0) { //if there are no threads, then this has only been invoked once and we need to make a shceuler thread
+	if (init == 0) { //if init is 0, we have'nt started any threads or anything
+		before=(ucontext_t*) malloc(sizeof(ucontext_t));
+		init=1;
+		//getcontext(before);
+		char * stack =(void *) malloc(STACK_SIZE);
+		//before->uc_link=sch_thread->context; //what this does is when this thread terminates, it will go back to the main scheduling thread
+		before->uc_stack.ss_sp=stack;
+		before->uc_stack.ss_size=STACK_SIZE;
+		before->uc_stack.ss_flags=0;
+		makecontext(before,NULL,0);
+		init=1;
 		init_timer();
 		sch_thread=(mypthread_t *) malloc(sizeof(mypthread_t));
 		init_thread(sch_thread);
@@ -108,7 +144,6 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
 		thread->next=front;
 		front=thread;
 	}
-	//schedule();
     return 0;
 };
 
@@ -116,21 +151,31 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
 int mypthread_yield() {
 	// change thread state from Running to Ready
 	// save context of this thread to its thread control block
-	// wwitch from thread context to scheduler context
-	current_thread->state=READY;
-	swapcontext(current_thread->context, sch_thread->context); //swapcontext(ucontext_t *oucp, ucontext_t *ucp)-Transfers control to ucp and saves the current execution state into oucp
-
-	// YOUR CODE HERE
+	// switch from thread context to scheduler context
+	if(current_thread==NULL) {
+		return -1;
+	}
+	current_thread->state=READY; //sets to READY, so the schedular won't terminate it
+	getcontext(current_thread->context);
+	//swapcontext(current_thread->context, sch_thread->context); //swapcontext(ucontext_t *oucp, ucontext_t *ucp)-Transfersto ucp and saves curent state into oucp
+	//getcontext(current_thread->context);
+	setcontext(sch_thread->context);
 	return 0;
 };
 
 /* terminate a thread */
-void mypthread_exit(void *value_ptr) {
-	// Deallocated any dynamic memory created when starting this thread
-	//current_thread->state=TERMINATED;
-	free(&(current_thread->context->uc_stack));
-	free(current_thread->context);
+void mypthread_exit(void *value_ptr) { //going to assume this value ptr is always NULL
+	current_thread->state=RUNNING;
+	setcontext(sch_thread->context); //swaps to sch_thread context, which sets it to be terminated
 	//
+}
+
+//frees thread resources
+// separate from mypthread_exit so we can reuse this for cleaning in sched_stcf
+void free_thread_resources(mypthread_t * thread) {
+	free(thread->context->uc_stack.ss_sp);
+	free(thread->context);
+	free(thread);
 }
 
 
@@ -184,24 +229,26 @@ int mypthread_mutex_destroy(mypthread_mutex_t *mutex) {
 
 /* scheduler */
 static void schedule(int signum) {
-	if (front ==NULL) {
-		exit(0);
+	printf("%s\n", "time 2 schedule");
+	if (front ==NULL) { //if we try to schedule and there are no threads we're done :)
+		shutdown();
 	}
-	if(current_thread!=NULL){
+	if(current_thread!=NULL){ //just to keep track of things
 		printf("thread->id is %d elapsed %d quanta \n", current_thread->id,current_thread->elapsed);
 		current_thread->elapsed++;
-		if(current_thread->elapsed>20) {
-			exit(0);
+		if(current_thread->elapsed>20) { //only for testing purposes
+			//exit(0);
 		}
+		//getcontext(current_thread->context); //saves the current context to current_thread-> context before we swap to a new curent_thread
 	}
-	if(front->next!=NULL){
-		sched_stcf();
+	sched_stcf();
+	if(current_thread==NULL || current_thread->state==TERMINATED) {
+		shutdown();
 	}else{
-		current_thread=front;
-	}
-	if(current_thread->state==TERMINATED) {
-		exit(0);
-	}else{
+		printf("%s\n","not null" );
+		if(current_thread->state==TERMINATED){
+			printf("%s\n", "done");
+		}
 		setcontext(current_thread->context);
 	}
 
@@ -221,23 +268,33 @@ like this, you might also need to keep track of how many time quantums each thre
 	// Your own implementation of STCF
 	// (feel free to modify arguments and return types)
 
-	//sch_thread->next is the head of the linked list;
-	while(front->state==TERMINATED) {
+	//we check for front==null in schedule()
+	//printf("%s\n", "not null");
+	while(front!=NULL && front->state==TERMINATED) {
+		mypthread_t* zombie=front;
 		front=front->next;
+		free_thread_resources(zombie);
 	}
+	//printf("%s\n", "not null");
 	mypthread_t * ptr=front;
 	if(ptr==NULL) {
 		return;
 	}
 	mypthread_t * lowest=ptr;
 	while(ptr!=NULL) {
-		if(ptr->elapsed<lowest->elapsed){
+		if(ptr->elapsed<lowest->elapsed && ptr->state!=TERMINATED){
 			lowest=ptr;
 		}
 		ptr=ptr->next;
 	}
-	current_thread=lowest;
-
+	if(current_thread!=NULL){
+		current_thread->state=READY;
+		//getcontext(current_thread->context);
+	}
+	current_thread=lowest; //changes current thread to point t the next thread to be executed
+	if(current_thread!=NULL && current_thread->state==READY){
+		current_thread->state=RUNNING;
+	}
 }
 
 /* Preemptive MLFQ scheduling algorithm */

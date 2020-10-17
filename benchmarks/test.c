@@ -16,8 +16,11 @@
  */
 int i_hate_it_here(int x) {
 	int i=0;
-	while(i++<x);
-	printf("%d\n", x);
+	printf("\n");
+	while(i++<100000){
+		printf("%d", x);
+	}
+	mypthread_yield();
 	return 0;
 }
 
@@ -29,16 +32,21 @@ int test(mypthread_t* thread) {
 
 int main(int argc, char **argv) {
 
-	/* Implement HERE */
+	/* Implement HERE 
 	mypthread_t* thread = (mypthread_t*) malloc(sizeof(mypthread_t));
-	mypthread_create(thread,NULL,&i_hate_it_here,500000);
+	mypthread_create(thread,NULL,&i_hate_it_here,50);
 	mypthread_t* thread1 = (mypthread_t*) malloc(sizeof(mypthread_t));
-	mypthread_create(thread1,NULL,&i_hate_it_here,20000);
+	mypthread_create(thread1,NULL,&i_hate_it_here,20);
+	*/
 	mypthread_t* thread2 = (mypthread_t*) malloc(sizeof(mypthread_t));
-	mypthread_create(thread2,NULL,&i_hate_it_here,300);
+	mypthread_create(thread2,NULL,&i_hate_it_here,3);
 	mypthread_t* thread3 = (mypthread_t*) malloc(sizeof(mypthread_t));
-	mypthread_create(thread3,NULL,&i_hate_it_here,70000);
+	mypthread_create(thread3,NULL,&i_hate_it_here,7);
 	// Kill some time
-	while(1);
+	int z=0;
+	while(z++<100000000){
+		printf("%s", "z");
+	}
+	printf("%s\n","all done" );
 	return 0;
 }
