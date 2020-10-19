@@ -14,7 +14,7 @@
 #define WAITING 3 
 #define TERMINATED 4
 
-#define QUANTUM 1 //25 milliseconds
+#define QUANTUM 25 //25 milliseconds
 
 static int init = 0; //if 0, then the timer and stuff has not been initialized
 static int mypthread_count=0;
@@ -32,13 +32,22 @@ struct itimerval it_zero;
 static ucontext_t * before;
 
 void timer_handler(int sig){
-	//printf("%s\n", "thyme");
+	printf("%s\n", "thyme");
 	if(current_thread_cb!=NULL){
     	//getcontext(current_thread_cb->context);
     	//puts("garlic");
     }
     //setcontext(sch_thread_cb->context);
     swapcontext(current_thread_cb->context,sch_thread_cb->context);
+}
+
+static void terminate_and_schedule(){
+	if(current_thread_cb !=NULL && current_thread_cb->state==RUNNING){ //if the thread is READY then it either just started or yielded
+		printf("terminated: thread id  %d\n", current_thread_cb->id);
+		current_thread_cb->state=TERMINATED;
+		active-=1;
+	}
+	schedule();
 }
 
 int init_thread_cb(tcb * thread) {
@@ -57,11 +66,13 @@ int init_thread_cb(tcb * thread) {
 	context->uc_stack.ss_sp=stack;
 	context->uc_stack.ss_size=STACK_SIZE;
 	context->uc_stack.ss_flags=0;
+	//printf(" this thread has id%d\n", mypthread_count);
 	mypthread_count++;
 	return 0; //returns 0, since there could be errnos in malloc, etc it doesn't return null
 }
 
 void shutdown() { //when we've run out of threads, this turns off the timer and cleans up everything
+	puts("hags");
 	tcb * ptr= front;
 	while(ptr!=NULL) { //free all of the nodes except front in the ll; it is asumed that they are all terminated
 		if(ptr->next!=NULL) {
@@ -85,25 +96,25 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
        // YOUR CODE HERE
 	active+=1;
 	if (init == 0) { //if init is 0, we have'nt started any threads or anything
-		setitimer(ITIMER_PROF,&it_quantum,NULL);
-		sch_thread_cb=(tcb *) malloc(sizeof(tcb));
-		main_thread_cb=(tcb *) malloc(sizeof(tcb));
-		init_thread_cb(sch_thread_cb);
-		makecontext(sch_thread_cb->context,&schedule,0);
 
-		//we make a main context and add it to the rest of the threads
+			sch_thread_cb=(tcb *) malloc(sizeof(tcb));
+			main_thread_cb=(tcb *) malloc(sizeof(tcb));
+			init_thread_cb(sch_thread_cb);
+			makecontext(sch_thread_cb->context,&schedule,0);
+		it_zero.it_value.tv_sec = 0; //set up the sero timer
+    	it_zero.it_value.tv_usec = 0;
     	ucontext_t main;
+    	//getcontext(&main);
+    	//main=(ucontext_t*) malloc(sizeof(ucontext_t));
     	main_thread_cb->context=(ucontext_t*) malloc(sizeof(ucontext_t));
     	main_thread_cb->state=RUNNING;
-    	main_thread_cb->elapsed=0;
     	getcontext(main_thread_cb->context);
     	init=1;
     	main_thread_cb->next=front;
 		front=main_thread_cb;
-
-    	it_quantum.it_value.tv_usec = QUANTUM; //set up the timer
-    	it_quantum.it_interval.tv_usec = QUANTUM;
-    	setitimer(ITIMER_PROF,&it_quantum,NULL);
+    	//swapcontext(main_thread_cb->context,sch_thread_cb->context);
+    	//setcontext(sch_thread_cb->context);
+    	//setitimer(ITIMER_PROF,&it_quantum,NULL);
 	}
 	tcb * thread_cb=(tcb*) malloc(sizeof(tcb));
 	ucontext_t* context = (ucontext_t*) malloc(sizeof(ucontext_t));
@@ -111,7 +122,6 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
 	thread_cb->next=NULL;
 	thread_cb->prev=NULL;
 	thread_cb->context = context;
-	thread_cb->elapsed=0;
 	thread_cb->state=READY;
 	thread_cb->id=++mypthread_count;
 	*thread=thread_cb->id;
@@ -139,8 +149,10 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
 		thread_cb->next=front;
 		front=thread_cb;
 	}
-	swapcontext(main_thread_cb->context,sch_thread_cb->context);
-    return(thread_cb->id);
+	//swapcontext(main_thread_cb->context,sch_thread_cb->context);
+
+	setcontext(sch_thread_cb->context);
+    return 0;
 };
 
 /* give CPU possession to other user-level threads voluntarily */
@@ -153,12 +165,12 @@ int mypthread_yield() {
 	}
 	current_thread_cb->state=READY; //sets to READY, so the schedular won't terminate it
 	//printf("%s\n", "yileding");
-	//getcontext(current_thread_cb->context);
+	getcontext(current_thread_cb->context);
 	//printf("%s\n", "line 167");
-	//setitimer(ITIMER_PROF,&it_quantum,NULL);
-	swapcontext(current_thread_cb->context, sch_thread_cb->context); //swapcontext(ucontext_t *oucp, ucontext_t *ucp)-Transfersto ucp and saves curent state into oucp
+	setitimer(ITIMER_PROF,&it_quantum,NULL);
+	//swapcontext(current_thread_cb->context, sch_thread_cb->context); //swapcontext(ucontext_t *oucp, ucontext_t *ucp)-Transfersto ucp and saves curent state into oucp
 	//getcontext(current_thread_cb->context);
-	//setcontext(sch_thread_cb->context);
+	setcontext(sch_thread_cb->context);
 	//printf("%s\n", "171");
 	return 0;
 };
@@ -170,7 +182,7 @@ void mypthread_exit(void *value_ptr) { //going to assume this value ptr is alway
         current_thread_cb->retval = value_ptr;
     } 
         // turn the timer off
-    //setitimer(ITIMER_PROF,&it_zero,NULL);
+    setitimer(ITIMER_PROF,&it_zero,NULL);
 	setcontext(sch_thread_cb->context); //swaps to sch_thread_cb context, which sets it to be terminated
 	//
 }
@@ -185,24 +197,11 @@ void free_thread_cb_resources(tcb * thread_cb) {
 
 /* Wait for thread termination */
 int mypthread_join(mypthread_t thread, void **value_ptr) {
-	printf("thread id %d\n", thread);
-	tcb* temp;
-	tcb * ptr=front;
-	while(ptr!=NULL){
-		if(ptr->id== thread){
-			temp=ptr;
-			break;
-		}
-		ptr=ptr->next;
-	}
-    // infinitely loop to block thread that called this until thread passed into parameters is terminated
-    while(temp!=NULL && temp->state != TERMINATED );
 
+	// wait for a specific thread to terminate
+	// de-allocate any dynamic memory created by the joining thread
 
-    // check if user wants a retval
-    if(value_ptr!=NULL){
-        *value_ptr = temp->retval;
-    }
+	// YOUR CODE HERE
 	return 0;
 };
 
@@ -250,16 +249,27 @@ static void schedule(int signum) {
     memset (&sa, 0, sizeof (sa));
     sa.sa_handler = &timer_handler;
     sigaction (SIGPROF, &sa, NULL);    
+
+    it_quantum.it_value.tv_sec = QUANTUM/1000;
+    it_quantum.it_value.tv_usec = (QUANTUM*1000) % 1000000;
 	while (1) { //if we try to schedule and there are no threads we're done :)
-		main_thread_cb->elapsed++;
-		current_thread_cb=main_thread_cb;
-		swapcontext(sch_thread_cb->context, main_thread_cb->context);
+		//printf("%s\n", "loop");
+		setitimer(ITIMER_PROF,&it_quantum,NULL);
+		//printf("%s\n", "smash");
+		//getcontext(sch_thread_cb->context);
+		//printf("%s\n", "dash");
+		//swapcontext(sch_thread_cb->context, main_thread_cb->context);
+		//setcontext(main_thread_cb->context);
+		//printf("%s\n","hulk smash" );
 		sched_stcf();
+		printf("%s\n", "always smash");
 		if(current_thread_cb==NULL || current_thread_cb->state==TERMINATED) {
 			shutdown();
 		}else{
+			//printf("%s\n", "love to smash");
 			swapcontext(sch_thread_cb->context, current_thread_cb->context);
-			if(current_thread_cb!=NULL){ 
+			if(current_thread_cb!=NULL){ //just to keep track of things
+				printf("id %d elapsed %d\n", current_thread_cb->id,current_thread_cb->elapsed);
 				current_thread_cb->elapsed++;
 			}
 		}
@@ -269,6 +279,21 @@ static void schedule(int signum) {
 }
 /* Preemptive SJF (STCF) scheduling algorithm */
 static void sched_stcf() {
+	/*
+	For the first scheduling algorithm, you are required to implement a pre-emptive SJF, which is also known
+as STCF. Unfortunately, you may have noticed that our scheduler DOES NOT know how long a thread will
+run for completion of job. Hence, in our scheduler, we could book-keep the time quantum each thread
+has to run; this is on the assumption that the more time quantum a thread has run, the longer
+this job will run to finish. Therefore, you might need a generic "QUANTUM" value defined possibly in
+mypthread.h, which denotes the minimum window of time after which a thread can be context switched
+out of the CPU. Let’s assume each quantum is 5 milliseconds; depending on your scheduler logic, one could
+context switch out a thread after one quantum or more than one quantum. To implement a mechanism
+like this, you might also need to keep track of how many time quantums each thread has ran for*/
+	// Your own implementation of STCF
+	// (feel free to modify arguments and return types)
+
+	//we check for front==null in schedule()
+	//printf("%s\n", "sched");
 	if(current_thread_cb!=NULL){
 		current_thread_cb->state=READY;//now this old thread is no longer running- its just ready
 	}
