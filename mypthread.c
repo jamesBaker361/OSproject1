@@ -210,20 +210,35 @@ int mypthread_join(mypthread_t thread, void **value_ptr) {
 int mypthread_mutex_init(mypthread_mutex_t *mutex,
                           const pthread_mutexattr_t *mutexattr) {
 	//initialize data structures for this mutex
-
-	// YOUR CODE HERE
+	*mutex = *((mypthread_mutex_t*)malloc(sizeof(mypthread_mutex_t)));
+	mutex->locked = 0;
+	mutex->head = (tcb*)malloc(sizeof(tcb));
+	mutex->tail = (tcb*)malloc(sizeof(tcb));
+	// form link
+	mutex->head->next = mutex->tail;
+	mutex->tail->prev = mutex->head;
 	return 0;
 };
 
 /* aquire the mutex lock */
 int mypthread_mutex_lock(mypthread_mutex_t *mutex) {
-        // use the built-in test-and-set atomic function to test the mutex
-        // if the mutex is acquired successfully, enter the critical section
-        // if acquiring mutex fails, push current thread into block list and //
-        // context switch to the scheduler thread
+	// use the built-in test-and-set atomic function to test the mutex
+	// if the mutex is acquired successfully, enter the critical section
+	// if acquiring mutex fails, push current thread into block list and //
+	// context switch to the scheduler thread
+	while(__sync_lock_test_and_set(&mutex->locked, 1) == 1) {
+		current_thread_cb->next = mutex->head->next;
+		current_thread_cb->prev = mutex->head;
+		mutex->head->next = current_thread_cb;
+		current_thread_cb->next->prev = current_thread_cb;
+		current_thread_cb->state = WAITING;
+    	swapcontext(current_thread_cb->context, sch_thread_cb->context); // is this how we do it?
+	}
+	if (mutex->locked == 1) {
+		mutex->holder = current_thread_cb; 
+	}
 
-        // YOUR CODE HERE
-        return 0;
+	return 0;
 };
 
 /* release the mutex lock */
@@ -231,8 +246,29 @@ int mypthread_mutex_unlock(mypthread_mutex_t *mutex) {
 	// Release mutex and make it available again.
 	// Put threads in block list to run queue
 	// so that they could compete for mutex later.
+	if (mutex->holder == current_thread_cb && mutex->head->next != mutex->tail) {
+		tcb* nextThread = mutex->tail->prev;
+		nextThread->prev->next = mutex->tail;
+		mutex->tail->prev = nextThread->prev;
+		nextThread->prev->next = nextThread->next;
+		if (nextThread->next != NULL) {
+			nextThread->next->prev = nextThread->prev;
+		}
+		nextThread->state = READY;
 
-	// YOUR CODE HERE
+		if (front == NULL) {
+			front = (tcb*)malloc(sizeof(tcb));
+			front->id = 1;
+		}
+		nextThread->prev = front;
+		nextThread->next = front->next;
+		nextThread->next->prev = nextThread;
+		front->next = nextThread;	
+
+	}
+	mutex->locked = 0;
+	mutex->holder = NULL;
+
 	return 0;
 };
 
@@ -240,7 +276,12 @@ int mypthread_mutex_unlock(mypthread_mutex_t *mutex) {
 /* destroy the mutex */
 int mypthread_mutex_destroy(mypthread_mutex_t *mutex) {
 	// Deallocate dynamic memory created in mypthread_mutex_init
-
+	if (current_thread_cb != mutex->holder) {
+		return -1;
+	}
+	else {
+		free(mutex);
+	}
 	return 0;
 };
 

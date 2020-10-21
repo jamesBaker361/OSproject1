@@ -42,9 +42,10 @@ typedef struct threadControlBlock {
 
 /* mutex struct definition */
 typedef struct mypthread_mutex_t {
-	/* add something here */
-
-	// YOUR CODE HERE
+	volatile int locked;
+	tcb* holder;
+	tcb* head;
+	tcb* tail;
 } mypthread_mutex_t;
 
 /* define your data structures here: */
