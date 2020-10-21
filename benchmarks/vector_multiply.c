@@ -4,7 +4,7 @@
 #include "../mypthread.h"
 
 #define DEFAULT_THREAD_NUM 2
-#define VECTOR_SIZE 3000000
+#define VECTOR_SIZE 300000
 
 /* Global variables */
 pthread_mutex_t   mutex;
@@ -21,6 +21,7 @@ void vector_multiply(void* arg) {
 	int n = *((int*) arg);
 	
 	for (i = n; i < VECTOR_SIZE; i += thread_num) {
+		//printf("%d\n", i);
 		pthread_mutex_lock(&mutex);
 		res += r[i] * s[i];
 		pthread_mutex_unlock(&mutex);	

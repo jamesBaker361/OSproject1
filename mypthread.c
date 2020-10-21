@@ -70,6 +70,7 @@ void shutdown() { //when we've run out of threads, this turns off the timer and 
 			free_thread_cb_resources(zombie);
 		}
 	}
+	printf("shutdown\n");
 	//setcontext(before);
 	//exit(0);
 
@@ -99,6 +100,9 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
     	getcontext(main_thread_cb->context);
     	init=1;
     	main_thread_cb->next=front;
+		if(main_thread_cb==front){
+			main_thread_cb->next=NULL;
+		}
 		front=main_thread_cb;
 
     	it_quantum.it_value.tv_usec = QUANTUM; //set up the timer
@@ -123,7 +127,7 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
 	context->uc_stack.ss_size=STACK_SIZE;
 	context->uc_stack.ss_flags=0;
 	//printf(" this thread has id%d\n", mypthread_count);
-	thread_cb->context->uc_link=sch_thread_cb->context;
+	thread_cb->context->uc_link=NULL; //sch_thread_cb->context;
 	if(arg==NULL){
 		makecontext(thread_cb->context,(void (*)()) function,0);
 	} else { //parallel_cal,external_cal and vector_mutiply all take 1 arg, we're going to assume that we dont have to worry about more
@@ -137,6 +141,9 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
 		current_thread_cb=thread_cb;
 	}else {
 		thread_cb->next=front;
+		if(thread_cb==front){
+			thread_cb->next=NULL;
+		}
 		front=thread_cb;
 	}
 	swapcontext(main_thread_cb->context,sch_thread_cb->context);
@@ -185,10 +192,11 @@ void free_thread_cb_resources(tcb * thread_cb) {
 
 /* Wait for thread termination */
 int mypthread_join(mypthread_t thread, void **value_ptr) {
-	printf("thread id %d\n", thread);
+	//printf("thread id %d\n", thread);
 	tcb* temp;
 	tcb * ptr=front;
 	while(ptr!=NULL){
+		printf("joineth");
 		if(ptr->id== thread){
 			temp=ptr;
 			break;
@@ -292,6 +300,7 @@ static void schedule(int signum) {
     sa.sa_handler = &timer_handler;
     sigaction (SIGPROF, &sa, NULL);    
 	while (1) { //if we try to schedule and there are no threads we're done :)
+		printf("%s\n", "bad scheule");
 		main_thread_cb->elapsed++;
 		current_thread_cb=main_thread_cb;
 		swapcontext(sch_thread_cb->context, main_thread_cb->context);
@@ -314,6 +323,7 @@ static void sched_stcf() {
 		current_thread_cb->state=READY;//now this old thread is no longer running- its just ready
 	}
 	while(front!=NULL && front->state==TERMINATED) {
+		printf("front!=Null");
 		tcb* zombie=front;
 		front=front->next;
 		free_thread_cb_resources(zombie);
@@ -325,8 +335,12 @@ static void sched_stcf() {
 	}
 	tcb * lowest=ptr;
 	while(ptr!=NULL) {
+		printf("ptr!=Null");
 		if(ptr->elapsed<lowest->elapsed && ptr->state==READY){
 			lowest=ptr;
+		}
+		if(ptr->next==ptr){
+			break;
 		}
 		ptr=ptr->next;
 	}
