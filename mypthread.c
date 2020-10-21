@@ -98,7 +98,10 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
     	main_thread_cb->elapsed=0;
     	getcontext(main_thread_cb->context);
     	init=1;
-    	main_thread_cb->next=front;
+    	main_thread_cb->next = front;
+		if (main_thread_cb == front) {
+			main_thread_cb->next = NULL;
+		}
 		front=main_thread_cb;
 
     	it_quantum.it_value.tv_usec = QUANTUM; //set up the timer
@@ -118,7 +121,7 @@ int mypthread_create(mypthread_t * thread, pthread_attr_t * attr,
 	char * stack =(void *) malloc(STACK_SIZE);
 	//before calling makecontext, we must intitilaize all these 
 	//context->uc_link=sch_thread_cb->context; //what this does is when this thread terminates, it will go back to the main scheduling thread
-	context->uc_link=sch_thread_cb->context;
+	context->uc_link=NULL;
 	context->uc_stack.ss_sp=stack;
 	context->uc_stack.ss_size=STACK_SIZE;
 	context->uc_stack.ss_flags=0;
@@ -185,7 +188,7 @@ void free_thread_cb_resources(tcb * thread_cb) {
 
 /* Wait for thread termination */
 int mypthread_join(mypthread_t thread, void **value_ptr) {
-	printf("thread id %d\n", thread);
+	//printf("thread id %d\n", thread);
 	tcb* temp;
 	tcb * ptr=front;
 	while(ptr!=NULL){
@@ -226,7 +229,7 @@ int mypthread_mutex_lock(mypthread_mutex_t *mutex) {
 	// if the mutex is acquired successfully, enter the critical section
 	// if acquiring mutex fails, push current thread into block list and //
 	// context switch to the scheduler thread
-	while(__sync_lock_test_and_set(&mutex->locked, 1) == 1) {
+	while(__sync_lock_test_and_set(&(mutex->locked), 1) == 1) {
 		current_thread_cb->next = mutex->head->next;
 		current_thread_cb->prev = mutex->head;
 		mutex->head->next = current_thread_cb;
@@ -234,9 +237,7 @@ int mypthread_mutex_lock(mypthread_mutex_t *mutex) {
 		current_thread_cb->state = WAITING;
     	swapcontext(current_thread_cb->context, sch_thread_cb->context); // is this how we do it?
 	}
-	if (mutex->locked == 1) {
-		mutex->holder = current_thread_cb; 
-	}
+	mutex->holder = current_thread_cb; 
 
 	return 0;
 };
@@ -246,6 +247,7 @@ int mypthread_mutex_unlock(mypthread_mutex_t *mutex) {
 	// Release mutex and make it available again.
 	// Put threads in block list to run queue
 	// so that they could compete for mutex later.
+	//printf("trying to unlock mutex");
 	if (mutex->holder == current_thread_cb && mutex->head->next != mutex->tail) {
 		tcb* nextThread = mutex->tail->prev;
 		nextThread->prev->next = mutex->tail;
@@ -260,15 +262,17 @@ int mypthread_mutex_unlock(mypthread_mutex_t *mutex) {
 			front = (tcb*)malloc(sizeof(tcb));
 			front->id = 1;
 		}
-		nextThread->prev = front;
-		nextThread->next = front->next;
-		nextThread->next->prev = nextThread;
-		front->next = nextThread;	
-
+		if (front != nextThread) {
+			nextThread->next = front->next;
+			nextThread->prev = front;
+			if (nextThread->next != NULL) {
+				nextThread->next->prev = nextThread;
+			}
+			front->next = nextThread;	
+		}
 	}
-	mutex->locked = 0;
 	mutex->holder = NULL;
-
+	mutex->locked = 0;
 	return 0;
 };
 
@@ -276,12 +280,7 @@ int mypthread_mutex_unlock(mypthread_mutex_t *mutex) {
 /* destroy the mutex */
 int mypthread_mutex_destroy(mypthread_mutex_t *mutex) {
 	// Deallocate dynamic memory created in mypthread_mutex_init
-	if (current_thread_cb != mutex->holder) {
-		return -1;
-	}
-	else {
-		free(mutex);
-	}
+	// don't free since mutexes are supplied by benchmarks
 	return 0;
 };
 
@@ -328,7 +327,11 @@ static void sched_stcf() {
 		if(ptr->elapsed<lowest->elapsed && ptr->state==READY){
 			lowest=ptr;
 		}
+		if (ptr->next==ptr) {
+			break;
+		}
 		ptr=ptr->next;
+
 	}
 	current_thread_cb=lowest; //changes current thread to point t the next thread to be executed
 	if(current_thread_cb!=NULL && current_thread_cb->state==READY){
